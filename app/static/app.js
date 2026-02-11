@@ -46,6 +46,7 @@ const dom = {
   selectAllLocalBtn: document.querySelector("#selectAllLocalBtn"),
   clearLocalBtn: document.querySelector("#clearLocalBtn"),
   pushLocalBtn: document.querySelector("#pushLocalBtn"),
+  deleteLocalBtn: document.querySelector("#deleteLocalBtn"),
   cleanupLocalTag: document.querySelector("#cleanupLocalTag"),
   cleanupRegistrySourceTag: document.querySelector("#cleanupRegistrySourceTag"),
   localImageList: document.querySelector("#localImageList"),
@@ -478,6 +479,39 @@ async function submitLocalPushJob() {
   }
 }
 
+async function submitLocalDeleteJob() {
+  collectSelectedLocalRefs();
+  if (state.selectedLocalRefs.size === 0) {
+    window.alert("请至少选择一个本地镜像。");
+    return;
+  }
+  const confirmed = window.confirm(
+    `确认删除已选中的 ${state.selectedLocalRefs.size} 个本地镜像引用吗？\n将按镜像ID强制删除，可能影响同ID的多个标签。`,
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  dom.deleteLocalBtn.disabled = true;
+  try {
+    const created = await request("/api/local-delete-jobs", {
+      method: "POST",
+      body: JSON.stringify({
+        image_refs: [...state.selectedLocalRefs],
+      }),
+    });
+    setJobStatus(created.status);
+    renderJobLogs(created.logs || []);
+    startJobPolling(created.id);
+    await loadRecentJobs();
+  } catch (error) {
+    setJobStatus("failed");
+    renderJobLogs([`创建本地镜像删除任务失败：${error.message}`]);
+  } finally {
+    dom.deleteLocalBtn.disabled = false;
+  }
+}
+
 async function submitRemotePrefixJob() {
   if (state.selectedRemoteRepos.size === 0) {
     window.alert("请至少选择一个远程仓库。");
@@ -567,7 +601,7 @@ function renderRecentJobs(jobs = []) {
         <span class="job-id">${job.id}</span>
         <span class="chip ${job.status}">${({ running: "运行中", success: "成功", failed: "失败", idle: "空闲" }[job.status] || job.status)}</span>
       </div>
-      <div class="job-image">[${job.job_type === "local-push" ? "本地批量上传" : job.job_type === "remote-prefix" ? "远程前缀重命名" : job.job_type === "repo-delete" ? "仓库批量删除" : "远程同步"}] ${job.source_image}</div>
+      <div class="job-image">[${job.job_type === "local-push" ? "本地批量上传" : job.job_type === "local-delete" ? "本地镜像删除" : job.job_type === "remote-prefix" ? "远程前缀重命名" : job.job_type === "repo-delete" ? "仓库批量删除" : "远程同步"}] ${job.source_image}</div>
       <div class="job-image">=> ${job.target_image}（${job.total_items || 1} 项）</div>
       <div class="job-id">${formatDate(job.updated_at)}</div>
     `;
@@ -651,6 +685,7 @@ function bindEvents() {
     renderLocalImages();
   });
   dom.pushLocalBtn.addEventListener("click", submitLocalPushJob);
+  dom.deleteLocalBtn.addEventListener("click", submitLocalDeleteJob);
   dom.localImageList.addEventListener("change", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) {

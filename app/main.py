@@ -58,6 +58,10 @@ class LocalPushJobRequest(BaseModel):
     )
 
 
+class LocalDeleteJobRequest(BaseModel):
+    image_refs: list[str] = Field(..., min_length=1, description="Selected local image refs")
+
+
 class RemotePrefixJobRequest(BaseModel):
     repositories: list[str] = Field(..., min_length=1, description="Selected remote repositories")
     prefix_mode: str = Field(default="add", description="add|remove")
@@ -205,6 +209,19 @@ def create_local_push_job(request: LocalPushJobRequest) -> dict[str, object]:
             target_registry_host=request.target_registry_host,
             cleanup_local_tag=request.cleanup_local_tag,
             cleanup_registry_source_tag=request.cleanup_registry_source_tag,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return job.to_dict()
+
+
+@app.post("/api/local-delete-jobs")
+def create_local_delete_job(request: LocalDeleteJobRequest) -> dict[str, object]:
+    try:
+        job = sync_job_manager.create_local_delete_job(
+            image_refs=request.image_refs,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -383,7 +383,64 @@ class SyncJobManager:
         thread.start()
         return job
 
+    def create_local_delete_job(self, image_refs: list[str]) -> SyncJob:
+        cleaned_refs = [item.strip() for item in image_refs if item and item.strip()]
+        if not cleaned_refs:
+            raise ValueError("At least one local image is required.")
+
+        ref_to_id = self._build_local_ref_to_image_id_map()
+        unique_image_ids: list[str] = []
+        seen_ids: set[str] = set()
+        missing_refs: list[str] = []
+
+        for ref in cleaned_refs:
+            image_id = ref_to_id.get(ref, "").strip()
+            if not image_id:
+                missing_refs.append(ref)
+                continue
+            if image_id in seen_ids:
+                continue
+            seen_ids.add(image_id)
+            unique_image_ids.append(image_id)
+
+        if not unique_image_ids and missing_refs:
+            raise ValueError("None of selected local image refs were found.")
+
+        commands = [["docker", "image", "rm", "-f", image_id] for image_id in unique_image_ids]
+        job = SyncJob(
+            id=uuid4().hex[:12],
+            source_image=f"{len(cleaned_refs)} local refs",
+            target_image="local docker daemon",
+            job_type="local-delete",
+            total_items=len(unique_image_ids),
+        )
+        created = self._create_and_start_job(job, commands, continue_on_error=True)
+        self._append_log(created.id, f"[init] type=local-delete total={len(unique_image_ids)}")
+        if missing_refs:
+            self._append_log(
+                created.id,
+                f"[warn] {len(missing_refs)} ref(s) not found locally and were skipped.",
+            )
+            for ref in missing_refs[:50]:
+                self._append_log(created.id, f"[warn] missing local ref {ref}")
+            if len(missing_refs) > 50:
+                self._append_log(created.id, f"[warn] ... ({len(missing_refs) - 50} more)")
+        return created
+
     def list_local_images(self, limit: int = 300) -> list[dict[str, object]]:
+        return self._list_local_images(limit=limit)
+
+    def _build_local_ref_to_image_id_map(self) -> dict[str, str]:
+        rows = self._list_local_images(limit=None)
+        mapping: dict[str, str] = {}
+        for item in rows:
+            reference = str(item.get("reference", "")).strip()
+            image_id = str(item.get("image_id", "")).strip()
+            if reference and image_id:
+                mapping[reference] = image_id
+        return mapping
+
+    def _list_local_images(self, limit: int | None = 300) -> list[dict[str, object]]:
         ps = subprocess.run(
             [
                 "docker",
@@ -419,7 +476,7 @@ class SyncJobManager:
                 }
             )
             refs_for_inspect.append(ref)
-            if len(rows) >= limit:
+            if limit is not None and len(rows) >= limit:
                 break
 
         if not refs_for_inspect:

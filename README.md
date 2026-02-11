@@ -25,6 +25,7 @@
 
 - `GET /api/local-images`：读取本地 Docker 镜像列表
 - `POST /api/local-push-jobs`：批量执行本地镜像 `tag + push`
+- `POST /api/local-delete-jobs`：按镜像 ID 批量删除本地镜像
 - `POST /api/remote-prefix-jobs`：远程仓库按前缀批量重命名
 
 ## 2. 启动方式
@@ -106,7 +107,17 @@ Web 中创建同步任务时，会在服务容器内执行：
 
 Registry 删除 manifest 后，存储空间通常需要执行垃圾回收才会真正释放（这是 Registry 的机制，不是 UI 限制）。
 
-## 7. 远程仓库一键前缀重命名
+## 7. 本地镜像批量删除
+
+在 `Local Images Batch Push` 面板中，勾选本地镜像后可点击 `删除已选镜像`。
+
+- 系统会先把所选 `repo:tag` 映射为本地 `image_id`，并去重后执行：
+  `docker image rm -f <image_id>`
+- 删除任务会进入最近任务列表并输出日志。
+- 单项失败不会中断后续项，最后汇总失败数量。
+- 由于按 `image_id` 强制删除，可能影响同一 ID 下的多个标签。
+
+## 8. 远程仓库一键前缀重命名
 
 在左侧 `仓库列表` 面板中：
 
