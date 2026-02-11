@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Registry Manager</title>
+    <title>镜像仓库管理台</title>
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
@@ -17,42 +17,59 @@
       <header class="header panel">
         <div>
           <p class="kicker">Docker Registry v2</p>
-          <h1>Private Registry Manager</h1>
+          <h1>私有镜像仓库管理台</h1>
         </div>
         <div class="status-wrap">
           <span class="status-dot" id="healthDot"></span>
-          <span id="healthText">Checking registry...</span>
+          <span id="healthText">正在检查仓库状态...</span>
         </div>
       </header>
 
       <main class="layout">
         <section class="panel repository-panel">
           <div class="panel-title-row">
-            <h2>Repositories</h2>
-            <button id="refreshReposBtn" class="ghost-btn">Refresh</button>
+            <h2>仓库列表</h2>
+            <button id="refreshReposBtn" class="ghost-btn">刷新</button>
           </div>
-          <label class="input-label" for="repoSearch">Search</label>
-          <input id="repoSearch" class="text-input" placeholder="repo name..." />
+          <label class="input-label" for="repoSearch">搜索</label>
+          <input id="repoSearch" class="text-input" placeholder="输入仓库名..." />
+          <div class="local-actions">
+            <button id="selectAllRemoteBtn" class="ghost-btn">全选可见仓库</button>
+            <button id="clearRemoteBtn" class="ghost-btn">清空仓库选择</button>
+          </div>
+          <label class="input-label" for="remotePrefixMode">远程重命名前缀模式</label>
+          <select id="remotePrefixMode" class="text-input">
+            <option value="add">批量添加前缀</option>
+            <option value="remove">批量移除前缀</option>
+          </select>
+          <label class="input-label" for="remotePrefixValue">远程前缀值</label>
+          <input id="remotePrefixValue" class="text-input" placeholder="例如：x86 或 arm 或 prod/x86" />
+          <label class="toggle-item">
+            <input id="cleanupRemoteSourceTag" type="checkbox" />
+            <span>重命名成功后删除旧仓库标签</span>
+          </label>
+          <button id="runRemotePrefixBtn" class="primary-btn wide">一键远程重命名</button>
+          <p id="remoteHint" class="meta-line">已选仓库：0</p>
           <ul id="repoList" class="repo-list"></ul>
-          <button id="loadMoreBtn" class="ghost-btn wide">Load More</button>
+          <button id="loadMoreBtn" class="ghost-btn wide">加载更多</button>
         </section>
 
         <section class="panel tags-panel">
           <div class="panel-title-row">
-            <h2 id="repoTitle">Select a repository</h2>
-            <button id="refreshTagsBtn" class="ghost-btn">Refresh Tags</button>
+            <h2 id="repoTitle">请选择一个仓库</h2>
+            <button id="refreshTagsBtn" class="ghost-btn">刷新标签</button>
           </div>
-          <p id="repoMeta" class="meta-line">No repository selected.</p>
+          <p id="repoMeta" class="meta-line">尚未选择仓库。</p>
 
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Tag</th>
-                  <th>Digest</th>
-                  <th>Size</th>
-                  <th>Created</th>
-                  <th class="th-action">Action</th>
+                  <th>标签</th>
+                  <th>摘要</th>
+                  <th>大小</th>
+                  <th>创建时间</th>
+                  <th class="th-action">操作</th>
                 </tr>
               </thead>
               <tbody id="tagTableBody"></tbody>
@@ -61,67 +78,67 @@
         </section>
 
         <aside class="panel sync-panel">
-          <h2>Mirror Image</h2>
+          <h2>远程镜像同步</h2>
           <p class="meta-line">
-            Pull image from remote registry, then push to your private registry.
+            从外部仓库拉取镜像，然后推送到你的私有仓库。
           </p>
           <form id="syncForm" class="sync-form">
-            <label class="input-label" for="sourceImage">Source image</label>
-            <input id="sourceImage" class="text-input" placeholder="e.g. nginx:1.27" required />
+            <label class="input-label" for="sourceImage">源镜像</label>
+            <input id="sourceImage" class="text-input" placeholder="例如：nginx:1.27" required />
 
-            <label class="input-label" for="targetRepo">Target repository (optional)</label>
-            <input id="targetRepo" class="text-input" placeholder="e.g. platform/nginx" />
+            <label class="input-label" for="targetRepo">目标仓库（可选）</label>
+            <input id="targetRepo" class="text-input" placeholder="例如：platform/nginx" />
 
-            <label class="input-label" for="targetTag">Target tag (optional)</label>
-            <input id="targetTag" class="text-input" placeholder="e.g. stable" />
+            <label class="input-label" for="targetTag">目标标签（可选）</label>
+            <input id="targetTag" class="text-input" placeholder="例如：stable" />
 
-            <button id="syncBtn" class="primary-btn" type="submit">Start Mirror</button>
+            <button id="syncBtn" class="primary-btn" type="submit">开始同步</button>
           </form>
 
           <div class="job-panel">
             <div class="panel-title-row">
-              <h3>Local Images Batch Push</h3>
-              <button id="refreshLocalBtn" class="ghost-btn">Scan Local</button>
+              <h3>本地镜像批量上传</h3>
+              <button id="refreshLocalBtn" class="ghost-btn">扫描本地镜像</button>
             </div>
             <p class="meta-line" id="localHint">
-              Select local images, choose arch suffix and prefix strategy, then push in one click.
+              选择本地镜像，设置架构后缀和前缀策略，一键上传。
             </p>
 
             <div class="local-controls">
-              <label class="input-label" for="archMode">Arch mode</label>
+              <label class="input-label" for="archMode">架构处理模式</label>
               <select id="archMode" class="text-input">
-                <option value="auto">Auto detect host arch</option>
-                <option value="custom">Custom</option>
-                <option value="none">No arch suffix</option>
+                <option value="auto">自动识别主机架构</option>
+                <option value="custom">自定义</option>
+                <option value="none">不追加架构后缀</option>
               </select>
 
-              <label class="input-label" for="archValue">Custom arch (for custom mode)</label>
-              <input id="archValue" class="text-input" placeholder="e.g. x86 or arm" />
+              <label class="input-label" for="archValue">自定义架构值（仅自定义模式）</label>
+              <input id="archValue" class="text-input" placeholder="例如：x86 或 arm" />
 
-              <label class="input-label" for="prefixMode">Prefix mode</label>
+              <label class="input-label" for="prefixMode">前缀处理模式</label>
               <select id="prefixMode" class="text-input">
-                <option value="none">No prefix change</option>
-                <option value="add">Batch add prefix</option>
-                <option value="remove">Batch remove prefix</option>
+                <option value="none">不修改前缀</option>
+                <option value="add">批量添加前缀</option>
+                <option value="remove">批量移除前缀</option>
               </select>
 
-              <label class="input-label" for="prefixValue">Prefix value</label>
-              <input id="prefixValue" class="text-input" placeholder="e.g. x86, arm, prod/x86" />
+              <label class="input-label" for="prefixValue">前缀值</label>
+              <input id="prefixValue" class="text-input" placeholder="例如：x86、arm、prod/x86" />
             </div>
 
             <div class="local-actions">
-              <button id="selectAllLocalBtn" class="ghost-btn">Select All</button>
-              <button id="clearLocalBtn" class="ghost-btn">Clear</button>
-              <button id="pushLocalBtn" class="primary-btn">Push Selected</button>
+              <button id="selectAllLocalBtn" class="ghost-btn">全选</button>
+              <button id="clearLocalBtn" class="ghost-btn">清空选择</button>
+              <button id="pushLocalBtn" class="primary-btn">上传已选镜像</button>
             </div>
             <div class="toggle-grid">
               <label class="toggle-item">
                 <input id="cleanupLocalTag" type="checkbox" />
-                <span>Upload success then remove local old tag</span>
+                <span>上传成功后删除本地旧标签</span>
               </label>
               <label class="toggle-item">
                 <input id="cleanupRegistrySourceTag" type="checkbox" />
-                <span>Upload success then remove registry old tag</span>
+                <span>上传成功后删除仓库旧标签</span>
               </label>
             </div>
             <ul id="localImageList" class="local-list"></ul>
@@ -129,16 +146,16 @@
 
           <div class="job-panel">
             <div class="panel-title-row">
-              <h3>Current Job</h3>
-              <span id="jobStatusChip" class="chip">IDLE</span>
+              <h3>当前任务</h3>
+              <span id="jobStatusChip" class="chip">空闲</span>
             </div>
-            <pre id="jobLogBox" class="log-box">No running job.</pre>
+            <pre id="jobLogBox" class="log-box">暂无运行中的任务。</pre>
           </div>
 
           <div class="job-panel">
             <div class="panel-title-row">
-              <h3>Recent Jobs</h3>
-              <button id="refreshJobsBtn" class="ghost-btn">Refresh</button>
+              <h3>最近任务</h3>
+              <button id="refreshJobsBtn" class="ghost-btn">刷新</button>
             </div>
             <ul id="jobList" class="job-list"></ul>
           </div>

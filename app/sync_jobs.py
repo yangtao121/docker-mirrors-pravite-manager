@@ -80,6 +80,15 @@ def _apply_prefix(repository: str, prefix_mode: str, prefix_value: str) -> str:
     raise ValueError(f"Unsupported prefix mode: {prefix_mode}")
 
 
+def _infer_pull_platform(repository: str, tag: str) -> str | None:
+    probe = f"{repository}:{tag}".lower()
+    if any(token in probe for token in ("x86", "amd64")):
+        return "linux/amd64"
+    if any(token in probe for token in ("arm64", "aarch64")):
+        return "linux/arm64"
+    return None
+
+
 @dataclass
 class SyncJob:
     id: str
@@ -239,6 +248,97 @@ class SyncJobManager:
             thread.start()
         return created
 
+    def create_remote_prefix_job(
+        self,
+        repositories: list[str],
+        prefix_mode: str = "add",
+        prefix_value: str = "",
+        cleanup_source_tag: bool = False,
+        target_registry_host: str | None = None,
+    ) -> SyncJob:
+        repos = [item.strip().strip("/") for item in repositories if item and item.strip()]
+        if not repos:
+            raise ValueError("At least one repository is required.")
+
+        normalized_prefix_mode = prefix_mode.strip().lower() or "add"
+        if normalized_prefix_mode not in {"add", "remove"}:
+            raise ValueError("prefix_mode must be add or remove.")
+
+        normalized_prefix = prefix_value.strip().strip("/")
+        if not normalized_prefix:
+            raise ValueError("prefix_value cannot be empty.")
+
+        registry_host = (target_registry_host or self.registry_push_host).strip().rstrip("/")
+        if not registry_host:
+            raise ValueError("target_registry_host cannot be empty.")
+        if not self.registry_api_url:
+            raise ValueError("registry_api_url is empty, cannot query remote tags.")
+
+        commands: list[list[str]] = []
+        mappings: list[str] = []
+        cleanup_targets: list[tuple[str, str]] = []
+        total_tags = 0
+
+        with httpx.Client(base_url=self.registry_api_url, timeout=20.0) as client:
+            for repository in repos:
+                tags = self._list_registry_tags(client, repository)
+                if not tags:
+                    mappings.append(f"{repository} (no tags)")
+                    continue
+
+                new_repository = _apply_prefix(repository, normalized_prefix_mode, normalized_prefix)
+                if not new_repository:
+                    raise ValueError(f"Prefix operation removed repository {repository}.")
+                if new_repository == repository:
+                    mappings.append(f"{repository} (unchanged)")
+                    continue
+
+                for tag in tags:
+                    source_ref = f"{registry_host}/{repository}:{tag}"
+                    target_ref = f"{registry_host}/{new_repository}:{tag}"
+                    platform_value = _infer_pull_platform(repository, tag)
+                    if platform_value:
+                        commands.append(["docker", "pull", "--platform", platform_value, source_ref])
+                        mappings.append(f"{source_ref} [{platform_value}] => {target_ref}")
+                    else:
+                        commands.append(["docker", "pull", source_ref])
+                        mappings.append(f"{source_ref} => {target_ref}")
+                    commands.append(["docker", "tag", source_ref, target_ref])
+                    commands.append(["docker", "push", target_ref])
+                    total_tags += 1
+                    if cleanup_source_tag:
+                        cleanup_targets.append((repository, tag))
+
+        if total_tags == 0:
+            raise ValueError("No tags found to rename for selected repositories.")
+
+        job = SyncJob(
+            id=uuid4().hex[:12],
+            source_image=f"{len(repos)} remote repositories",
+            target_image=registry_host,
+            job_type="remote-prefix",
+            total_items=total_tags,
+        )
+        created = self._create_and_start_job(job, commands, continue_on_error=True)
+        self._append_log(
+            created.id,
+            f"[plan] remote-prefix mode={normalized_prefix_mode} prefix={normalized_prefix} "
+            f"cleanup_source_tag={cleanup_source_tag}",
+        )
+        for mapping in mappings[:200]:
+            self._append_log(created.id, f"[map] {mapping}")
+        if len(mappings) > 200:
+            self._append_log(created.id, f"[map] ... ({len(mappings) - 200} more)")
+
+        if cleanup_source_tag:
+            thread = threading.Thread(
+                target=self._wait_then_cleanup_registry_source_tags,
+                args=(created.id, cleanup_targets),
+                daemon=True,
+            )
+            thread.start()
+        return created
+
     def list_local_images(self, limit: int = 300) -> list[dict[str, object]]:
         ps = subprocess.run(
             [
@@ -315,6 +415,21 @@ class SyncJobManager:
 
         return rows
 
+    def _list_registry_tags(self, client: httpx.Client, repository: str) -> list[str]:
+        path = f"/v2/{quote(repository, safe='/')}/tags/list"
+        response = client.get(path)
+        if response.status_code == 404:
+            return []
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"list tags failed for {repository}, status={response.status_code}"
+            )
+        payload = response.json()
+        tags = payload.get("tags") or []
+        if not isinstance(tags, list):
+            return []
+        return [str(tag) for tag in tags if isinstance(tag, str)]
+
     def get_job(self, job_id: str) -> SyncJob | None:
         with self._lock:
             return self._jobs.get(job_id)
@@ -351,7 +466,12 @@ class SyncJobManager:
                 del job.logs[:-300]
             job.updated_at = utc_now_iso()
 
-    def _create_and_start_job(self, job: SyncJob, commands: list[list[str]]) -> SyncJob:
+    def _create_and_start_job(
+        self,
+        job: SyncJob,
+        commands: list[list[str]],
+        continue_on_error: bool = False,
+    ) -> SyncJob:
         self._insert_job(job)
         self._append_log(
             job.id,
@@ -359,7 +479,7 @@ class SyncJobManager:
         )
         thread = threading.Thread(
             target=self._run_commands_job,
-            args=(job.id, commands),
+            args=(job.id, commands, continue_on_error),
             daemon=True,
         )
         thread.start()
@@ -444,14 +564,29 @@ class SyncJobManager:
             )
         self._append_log(job_id, f"[cleanup] deleted source tag {repository}:{tag}")
 
-    def _run_commands_job(self, job_id: str, commands: list[list[str]]) -> None:
+    def _run_commands_job(
+        self,
+        job_id: str,
+        commands: list[list[str]],
+        continue_on_error: bool = False,
+    ) -> None:
+        failures = 0
         try:
             for command in commands:
-                self._run_command(job_id, command)
-            self._update_job_status(job_id, "success")
-            self._append_log(job_id, "[done] Job finished successfully.")
+                try:
+                    self._run_command(job_id, command)
+                except Exception as exc:
+                    failures += 1
+                    self._append_log(job_id, f"[error] {exc}")
+                    if not continue_on_error:
+                        raise
+            if failures > 0:
+                self._update_job_status(job_id, "failed", f"{failures} command(s) failed")
+                self._append_log(job_id, f"[done] Job finished with {failures} failure(s).")
+            else:
+                self._update_job_status(job_id, "success")
+                self._append_log(job_id, "[done] Job finished successfully.")
         except Exception as exc:
-            self._append_log(job_id, f"[error] {exc}")
             self._update_job_status(job_id, "failed", str(exc))
 
     def _run_command(self, job_id: str, command: Iterable[str]) -> None:

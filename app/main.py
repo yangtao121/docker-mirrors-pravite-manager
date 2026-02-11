@@ -54,6 +54,20 @@ class LocalPushJobRequest(BaseModel):
     )
 
 
+class RemotePrefixJobRequest(BaseModel):
+    repositories: list[str] = Field(..., min_length=1, description="Selected remote repositories")
+    prefix_mode: str = Field(default="add", description="add|remove")
+    prefix_value: str = Field(default="", description="Prefix value")
+    cleanup_source_tag: bool = Field(
+        default=False,
+        description="Delete source tags from registry after successful rename",
+    )
+    target_registry_host: str | None = Field(
+        default=None,
+        description="Override registry host, default from REGISTRY_PUSH_HOST",
+    )
+
+
 def _raise_registry_error(exc: RegistryError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
@@ -159,6 +173,23 @@ def create_local_push_job(request: LocalPushJobRequest) -> dict[str, object]:
             target_registry_host=request.target_registry_host,
             cleanup_local_tag=request.cleanup_local_tag,
             cleanup_registry_source_tag=request.cleanup_registry_source_tag,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return job.to_dict()
+
+
+@app.post("/api/remote-prefix-jobs")
+def create_remote_prefix_job(request: RemotePrefixJobRequest) -> dict[str, object]:
+    try:
+        job = sync_job_manager.create_remote_prefix_job(
+            repositories=request.repositories,
+            prefix_mode=request.prefix_mode,
+            prefix_value=request.prefix_value,
+            cleanup_source_tag=request.cleanup_source_tag,
+            target_registry_host=request.target_registry_host,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -7,6 +7,7 @@ const state = {
   jobPollTimer: null,
   localImages: [],
   selectedLocalRefs: new Set(),
+  selectedRemoteRepos: new Set(),
   detectedArch: "unknown",
 };
 
@@ -17,6 +18,13 @@ const dom = {
   repoList: document.querySelector("#repoList"),
   loadMoreBtn: document.querySelector("#loadMoreBtn"),
   refreshReposBtn: document.querySelector("#refreshReposBtn"),
+  selectAllRemoteBtn: document.querySelector("#selectAllRemoteBtn"),
+  clearRemoteBtn: document.querySelector("#clearRemoteBtn"),
+  remotePrefixMode: document.querySelector("#remotePrefixMode"),
+  remotePrefixValue: document.querySelector("#remotePrefixValue"),
+  cleanupRemoteSourceTag: document.querySelector("#cleanupRemoteSourceTag"),
+  runRemotePrefixBtn: document.querySelector("#runRemotePrefixBtn"),
+  remoteHint: document.querySelector("#remoteHint"),
   repoTitle: document.querySelector("#repoTitle"),
   repoMeta: document.querySelector("#repoMeta"),
   refreshTagsBtn: document.querySelector("#refreshTagsBtn"),
@@ -110,7 +118,7 @@ function setHealth(healthy, text) {
 
 function updateLocalHint() {
   const selected = state.selectedLocalRefs.size;
-  dom.localHint.textContent = `Detected arch: ${state.detectedArch} | Selected: ${selected} | Total local images: ${state.localImages.length}`;
+  dom.localHint.textContent = `检测到架构：${state.detectedArch} ｜ 已选择：${selected} ｜ 本地镜像总数：${state.localImages.length}`;
 }
 
 async function refreshHealth() {
@@ -119,11 +127,11 @@ async function refreshHealth() {
     state.detectedArch = result.detected_arch || state.detectedArch;
     updateLocalHint();
     const message = result.registry_healthy
-      ? `Registry Online (${result.registry_push_host})`
-      : `Registry Unreachable (${result.registry_push_host})`;
+      ? `仓库在线（${result.registry_push_host}）`
+      : `仓库不可达（${result.registry_push_host}）`;
     setHealth(Boolean(result.registry_healthy), message);
   } catch (error) {
-    setHealth(false, `Health check failed: ${error.message}`);
+    setHealth(false, `健康检查失败：${error.message}`);
   }
 }
 
@@ -138,20 +146,35 @@ function applyRepoFilter() {
 function renderRepositoryList() {
   dom.repoList.innerHTML = "";
   if (state.filteredRepositories.length === 0) {
-    dom.repoList.innerHTML = `<li class="repo-empty">No repositories found.</li>`;
+    dom.repoList.innerHTML = `<li class="repo-empty">未找到仓库。</li>`;
+    updateRemoteHint();
     return;
   }
   for (const repo of state.filteredRepositories) {
     const item = document.createElement("li");
     item.className = `repo-item${repo === state.selectedRepository ? " active" : ""}`;
-    item.textContent = repo;
-    item.addEventListener("click", () => selectRepository(repo));
+    const checked = state.selectedRemoteRepos.has(repo) ? "checked" : "";
+    item.innerHTML = `
+      <div class="repo-row">
+        <input class="select-input" type="checkbox" data-repo="${repo}" ${checked} />
+        <span class="repo-name">${repo}</span>
+      </div>
+    `;
+    const repoNameEl = item.querySelector(".repo-name");
+    if (repoNameEl) {
+      repoNameEl.addEventListener("click", () => selectRepository(repo));
+    }
     dom.repoList.appendChild(item);
   }
+  updateRemoteHint();
 }
 
 function setRepoMeta(message) {
   dom.repoMeta.textContent = message;
+}
+
+function updateRemoteHint() {
+  dom.remoteHint.textContent = `已选仓库：${state.selectedRemoteRepos.size}`;
 }
 
 async function loadRepositories({ append = false } = {}) {
@@ -169,14 +192,21 @@ async function loadRepositories({ append = false } = {}) {
   } else {
     state.repositories = repos;
   }
+  const existingRepos = new Set(state.repositories);
+  for (const repo of [...state.selectedRemoteRepos]) {
+    if (!existingRepos.has(repo)) {
+      state.selectedRemoteRepos.delete(repo);
+    }
+  }
   applyRepoFilter();
   dom.loadMoreBtn.style.display = state.nextCursor ? "inline-block" : "none";
+  updateRemoteHint();
 }
 
 function renderTags(tags) {
   dom.tagTableBody.innerHTML = "";
   if (!tags || tags.length === 0) {
-    dom.tagTableBody.innerHTML = `<tr><td colspan="5">No tags found.</td></tr>`;
+    dom.tagTableBody.innerHTML = `<tr><td colspan="5">未找到标签。</td></tr>`;
     return;
   }
 
@@ -194,7 +224,7 @@ function renderTags(tags) {
 
     const deleteButton = document.createElement("button");
     deleteButton.className = "danger-btn";
-    deleteButton.textContent = "Delete";
+    deleteButton.textContent = "删除";
     deleteButton.addEventListener("click", () => deleteTag(row.tag));
 
     const actionTd = document.createElement("td");
@@ -215,7 +245,7 @@ function renderTags(tags) {
 async function selectRepository(repository) {
   state.selectedRepository = repository;
   dom.repoTitle.textContent = repository;
-  setRepoMeta("Loading tags...");
+  setRepoMeta("正在加载标签...");
   renderRepositoryList();
   await loadTags();
 }
@@ -223,14 +253,14 @@ async function selectRepository(repository) {
 async function loadTags() {
   const repository = state.selectedRepository;
   if (!repository) {
-    dom.repoTitle.textContent = "Select a repository";
-    setRepoMeta("No repository selected.");
+    dom.repoTitle.textContent = "请选择一个仓库";
+    setRepoMeta("尚未选择仓库。");
     renderTags([]);
     return;
   }
   const payload = await request(`/api/repositories/${encodeURIComponent(repository)}/tags`);
   const tags = Array.isArray(payload.tags) ? payload.tags : [];
-  setRepoMeta(`Total tags: ${tags.length}`);
+  setRepoMeta(`标签总数：${tags.length}`);
   renderTags(tags);
 }
 
@@ -239,7 +269,7 @@ async function deleteTag(tag) {
   if (!repository || !tag) {
     return;
   }
-  const confirmed = window.confirm(`Delete ${repository}:${tag}?`);
+  const confirmed = window.confirm(`确认删除 ${repository}:${tag} 吗？`);
   if (!confirmed) {
     return;
   }
@@ -253,11 +283,17 @@ function setJobStatus(status) {
   const normalized = (status || "idle").toLowerCase();
   dom.jobStatusChip.className = "chip";
   dom.jobStatusChip.classList.add(normalized);
-  dom.jobStatusChip.textContent = normalized.toUpperCase();
+  const statusText = {
+    idle: "空闲",
+    running: "运行中",
+    success: "成功",
+    failed: "失败",
+  };
+  dom.jobStatusChip.textContent = statusText[normalized] || normalized;
 }
 
 function renderJobLogs(logs = []) {
-  dom.jobLogBox.textContent = logs.length > 0 ? logs.join("\n") : "No logs.";
+  dom.jobLogBox.textContent = logs.length > 0 ? logs.join("\n") : "暂无日志。";
   dom.jobLogBox.scrollTop = dom.jobLogBox.scrollHeight;
 }
 
@@ -287,7 +323,7 @@ async function pollJob(jobId) {
   } catch (error) {
     stopJobPolling();
     setJobStatus("failed");
-    renderJobLogs([`Job polling failed: ${error.message}`]);
+    renderJobLogs([`任务状态轮询失败：${error.message}`]);
   }
 }
 
@@ -297,7 +333,7 @@ function startJobPolling(jobId) {
   state.jobPollTimer = setInterval(() => {
     pollJob(jobId).catch((error) => {
       stopJobPolling();
-      renderJobLogs([`Job polling error: ${error.message}`]);
+      renderJobLogs([`任务轮询异常：${error.message}`]);
     });
   }, 1800);
 }
@@ -308,7 +344,7 @@ async function submitMirrorJob(event) {
   const targetRepo = dom.targetRepo.value.trim();
   const targetTag = dom.targetTag.value.trim();
   if (!sourceImage) {
-    window.alert("source image cannot be empty.");
+    window.alert("源镜像不能为空。");
     return;
   }
 
@@ -329,7 +365,7 @@ async function submitMirrorJob(event) {
     await loadRecentJobs();
   } catch (error) {
     setJobStatus("failed");
-    renderJobLogs([`Create job failed: ${error.message}`]);
+    renderJobLogs([`创建任务失败：${error.message}`]);
   } finally {
     dom.syncBtn.disabled = false;
   }
@@ -338,7 +374,7 @@ async function submitMirrorJob(event) {
 function renderLocalImages() {
   dom.localImageList.innerHTML = "";
   if (state.localImages.length === 0) {
-    dom.localImageList.innerHTML = `<li class="job-empty">No local images found.</li>`;
+    dom.localImageList.innerHTML = `<li class="job-empty">未找到本地镜像。</li>`;
     updateLocalHint();
     return;
   }
@@ -392,7 +428,7 @@ function collectSelectedLocalRefs() {
 async function submitLocalPushJob() {
   collectSelectedLocalRefs();
   if (state.selectedLocalRefs.size === 0) {
-    window.alert("Please select at least one local image.");
+    window.alert("请至少选择一个本地镜像。");
     return;
   }
 
@@ -401,11 +437,11 @@ async function submitLocalPushJob() {
   const prefixMode = dom.prefixMode.value;
   const prefixValue = dom.prefixValue.value.trim();
   if (archMode === "custom" && !archValue) {
-    window.alert("Custom arch cannot be empty.");
+    window.alert("自定义架构值不能为空。");
     return;
   }
   if (prefixMode !== "none" && !prefixValue) {
-    window.alert("Prefix value cannot be empty when prefix mode is add/remove.");
+    window.alert("当前选择了前缀加减模式，前缀值不能为空。");
     return;
   }
 
@@ -429,16 +465,58 @@ async function submitLocalPushJob() {
     await loadRecentJobs();
   } catch (error) {
     setJobStatus("failed");
-    renderJobLogs([`Create local push job failed: ${error.message}`]);
+    renderJobLogs([`创建本地批量上传任务失败：${error.message}`]);
   } finally {
     dom.pushLocalBtn.disabled = false;
+  }
+}
+
+async function submitRemotePrefixJob() {
+  if (state.selectedRemoteRepos.size === 0) {
+    window.alert("请至少选择一个远程仓库。");
+    return;
+  }
+  const prefixMode = dom.remotePrefixMode.value;
+  const prefixValue = dom.remotePrefixValue.value.trim();
+  if (!prefixValue) {
+    window.alert("远程前缀值不能为空。");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `确认对 ${state.selectedRemoteRepos.size} 个仓库执行前缀重命名吗？`,
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  dom.runRemotePrefixBtn.disabled = true;
+  try {
+    const created = await request("/api/remote-prefix-jobs", {
+      method: "POST",
+      body: JSON.stringify({
+        repositories: [...state.selectedRemoteRepos],
+        prefix_mode: prefixMode,
+        prefix_value: prefixValue,
+        cleanup_source_tag: Boolean(dom.cleanupRemoteSourceTag.checked),
+      }),
+    });
+    setJobStatus(created.status);
+    renderJobLogs(created.logs || []);
+    startJobPolling(created.id);
+    await loadRecentJobs();
+  } catch (error) {
+    setJobStatus("failed");
+    renderJobLogs([`创建远程批量重命名任务失败：${error.message}`]);
+  } finally {
+    dom.runRemotePrefixBtn.disabled = false;
   }
 }
 
 function renderRecentJobs(jobs = []) {
   dom.jobList.innerHTML = "";
   if (jobs.length === 0) {
-    dom.jobList.innerHTML = `<li class="job-empty">No jobs yet.</li>`;
+    dom.jobList.innerHTML = `<li class="job-empty">暂无任务记录。</li>`;
     return;
   }
 
@@ -448,10 +526,10 @@ function renderRecentJobs(jobs = []) {
     li.innerHTML = `
       <div class="job-top">
         <span class="job-id">${job.id}</span>
-        <span class="chip ${job.status}">${job.status}</span>
+        <span class="chip ${job.status}">${({ running: "运行中", success: "成功", failed: "失败", idle: "空闲" }[job.status] || job.status)}</span>
       </div>
-      <div class="job-image">[${job.job_type || "mirror"}] ${job.source_image}</div>
-      <div class="job-image">=> ${job.target_image} (${job.total_items || 1} item)</div>
+      <div class="job-image">[${job.job_type === "local-push" ? "本地批量上传" : job.job_type === "remote-prefix" ? "远程前缀重命名" : "远程同步"}] ${job.source_image}</div>
+      <div class="job-image">=> ${job.target_image}（${job.total_items || 1} 项）</div>
       <div class="job-id">${formatDate(job.updated_at)}</div>
     `;
     li.addEventListener("click", async () => {
@@ -479,28 +557,39 @@ function bindEvents() {
     try {
       await loadRepositories({ append: true });
     } catch (error) {
-      window.alert(`Load more repositories failed: ${error.message}`);
+      window.alert(`加载更多仓库失败：${error.message}`);
     }
   });
   dom.refreshReposBtn.addEventListener("click", async () => {
     try {
       await loadRepositories();
     } catch (error) {
-      window.alert(`Refresh repositories failed: ${error.message}`);
+      window.alert(`刷新仓库失败：${error.message}`);
     }
   });
+  dom.selectAllRemoteBtn.addEventListener("click", () => {
+    for (const repo of state.filteredRepositories) {
+      state.selectedRemoteRepos.add(repo);
+    }
+    renderRepositoryList();
+  });
+  dom.clearRemoteBtn.addEventListener("click", () => {
+    state.selectedRemoteRepos.clear();
+    renderRepositoryList();
+  });
+  dom.runRemotePrefixBtn.addEventListener("click", submitRemotePrefixJob);
   dom.refreshTagsBtn.addEventListener("click", async () => {
     try {
       await loadTags();
     } catch (error) {
-      window.alert(`Refresh tags failed: ${error.message}`);
+      window.alert(`刷新标签失败：${error.message}`);
     }
   });
   dom.refreshJobsBtn.addEventListener("click", async () => {
     try {
       await loadRecentJobs();
     } catch (error) {
-      window.alert(`Refresh jobs failed: ${error.message}`);
+      window.alert(`刷新任务失败：${error.message}`);
     }
   });
   dom.syncForm.addEventListener("submit", submitMirrorJob);
@@ -508,7 +597,7 @@ function bindEvents() {
     try {
       await loadLocalImages();
     } catch (error) {
-      window.alert(`Load local images failed: ${error.message}`);
+      window.alert(`加载本地镜像失败：${error.message}`);
     }
   });
   dom.selectAllLocalBtn.addEventListener("click", () => {
@@ -538,6 +627,22 @@ function bindEvents() {
     }
     updateLocalHint();
   });
+  dom.repoList.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    const repo = target.dataset.repo;
+    if (!repo) {
+      return;
+    }
+    if (target.checked) {
+      state.selectedRemoteRepos.add(repo);
+    } else {
+      state.selectedRemoteRepos.delete(repo);
+    }
+    updateRemoteHint();
+  });
 }
 
 async function bootstrap() {
@@ -562,5 +667,5 @@ async function bootstrap() {
 }
 
 bootstrap().catch((error) => {
-  window.alert(`Bootstrap failed: ${error.message}`);
+  window.alert(`页面初始化失败：${error.message}`);
 });

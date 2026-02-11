@@ -192,6 +192,17 @@ h3 {
   transition: transform 0.12s ease, border-color 0.12s ease;
 }
 
+.repo-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.repo-name {
+  flex: 1;
+  word-break: break-all;
+}
+
 .repo-item:hover {
   transform: translateY(-1px);
   border-color: rgba(13, 148, 136, 0.45);

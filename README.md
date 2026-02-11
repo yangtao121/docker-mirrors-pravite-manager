@@ -7,6 +7,7 @@
 - 从外部镜像源拉取镜像并推送到你自己的仓库（`docker pull -> tag -> push`）
 - 扫描本地 Docker 镜像，一键批量重命名并推送到私有仓库
 - 批量前缀加/减（例如统一加 `x86/` 或 `arm/` 前缀）
+- 远程仓库镜像一键重命名前缀（按仓库批量处理所有 tags）
 - 任务日志实时查看
 
 ## 1. API 设计依据（Registry v2）
@@ -24,6 +25,7 @@
 
 - `GET /api/local-images`：读取本地 Docker 镜像列表
 - `POST /api/local-push-jobs`：批量执行本地镜像 `tag + push`
+- `POST /api/remote-prefix-jobs`：远程仓库按前缀批量重命名
 
 ## 2. 启动方式
 
@@ -98,3 +100,19 @@ Web 中创建同步任务时，会在服务容器内执行：
 ## 6. 删除后空间回收
 
 Registry 删除 manifest 后，存储空间通常需要执行垃圾回收才会真正释放（这是 Registry 的机制，不是 UI 限制）。
+
+## 7. 远程仓库一键前缀重命名
+
+在左侧 `仓库列表` 面板中：
+
+1. 勾选要处理的远程仓库（可全选可见仓库）。
+2. 选择前缀模式（添加/移除）并填写前缀值。
+3. 点击 `一键远程重命名`。
+
+系统会对选中仓库下所有 tags 执行：
+
+1. `docker pull <registry>/<old-repo>:<tag>`
+2. `docker tag <registry>/<old-repo>:<tag> <registry>/<new-repo>:<tag>`
+3. `docker push <registry>/<new-repo>:<tag>`
+
+可选开启 `重命名成功后删除旧仓库标签`，避免新旧仓库并存。
