@@ -350,6 +350,30 @@ class SyncJobManager:
             thread.start()
         return created
 
+    def create_repository_delete_job(self, repositories: list[str]) -> SyncJob:
+        repos = [item.strip().strip("/") for item in repositories if item and item.strip()]
+        if not repos:
+            raise ValueError("At least one repository is required.")
+        if not self.registry_api_url:
+            raise ValueError("registry_api_url is empty, cannot delete repositories.")
+
+        job = SyncJob(
+            id=uuid4().hex[:12],
+            source_image=f"{len(repos)} repositories",
+            target_image=self.registry_api_url,
+            job_type="repo-delete",
+            total_items=len(repos),
+        )
+        self._insert_job(job)
+        self._append_log(job.id, f"[init] type=repo-delete repositories={len(repos)}")
+        thread = threading.Thread(
+            target=self._run_repository_delete_job,
+            args=(job.id, repos),
+            daemon=True,
+        )
+        thread.start()
+        return job
+
     def list_local_images(self, limit: int = 300) -> list[dict[str, object]]:
         ps = subprocess.run(
             [
@@ -440,6 +464,129 @@ class SyncJobManager:
         if not isinstance(tags, list):
             return []
         return [str(tag) for tag in tags if isinstance(tag, str)]
+
+    def _resolve_registry_digest(
+        self,
+        client: httpx.Client,
+        repository: str,
+        tag: str,
+    ) -> str | None:
+        encoded_repo = quote(repository, safe="/")
+        encoded_tag = quote(tag, safe="")
+        path = f"/v2/{encoded_repo}/manifests/{encoded_tag}"
+        headers = {
+            "Accept": ", ".join(
+                [
+                    "application/vnd.docker.distribution.manifest.v2+json",
+                    "application/vnd.oci.image.manifest.v1+json",
+                    "application/vnd.docker.distribution.manifest.list.v2+json",
+                    "application/vnd.oci.image.index.v1+json",
+                ]
+            )
+        }
+        head_resp = client.head(path, headers=headers)
+        if head_resp.status_code == 404:
+            return None
+        if head_resp.status_code >= 400:
+            raise RuntimeError(
+                f"resolve digest failed {repository}:{tag} status={head_resp.status_code}"
+            )
+        digest = head_resp.headers.get("Docker-Content-Digest", "").strip()
+        if digest:
+            return digest
+
+        get_resp = client.get(path, headers=headers)
+        if get_resp.status_code == 404:
+            return None
+        if get_resp.status_code >= 400:
+            raise RuntimeError(
+                f"resolve digest fallback failed {repository}:{tag} status={get_resp.status_code}"
+            )
+        digest = get_resp.headers.get("Docker-Content-Digest", "").strip()
+        return digest or None
+
+    def _delete_manifest_digest(
+        self,
+        client: httpx.Client,
+        repository: str,
+        digest: str,
+    ) -> None:
+        encoded_repo = quote(repository, safe="/")
+        encoded_digest = quote(digest, safe=":")
+        path = f"/v2/{encoded_repo}/manifests/{encoded_digest}"
+        response = client.delete(path)
+        if response.status_code in {202, 200, 404}:
+            return
+        if response.status_code == 405:
+            raise RuntimeError(
+                "registry does not allow manifest delete (405). "
+                "Please enable REGISTRY_STORAGE_DELETE_ENABLED=true and restart registry."
+            )
+        raise RuntimeError(
+            f"delete manifest failed {repository}@{digest} status={response.status_code}"
+        )
+
+    def _run_repository_delete_job(self, job_id: str, repositories: list[str]) -> None:
+        failures = 0
+        deleted_count = 0
+        try:
+            with httpx.Client(base_url=self.registry_api_url, timeout=20.0) as client:
+                for repository in repositories:
+                    try:
+                        tags = self._list_registry_tags(client, repository)
+                    except Exception as exc:
+                        failures += 1
+                        self._append_log(job_id, f"[error] list tags failed for {repository}: {exc}")
+                        continue
+
+                    if not tags:
+                        self._append_log(job_id, f"[repo] {repository} has no tags, skip.")
+                        continue
+
+                    digests: set[str] = set()
+                    for tag in tags:
+                        try:
+                            digest = self._resolve_registry_digest(client, repository, tag)
+                            if digest:
+                                digests.add(digest)
+                        except Exception as exc:
+                            failures += 1
+                            self._append_log(
+                                job_id,
+                                f"[error] resolve digest failed {repository}:{tag}: {exc}",
+                            )
+
+                    if not digests:
+                        self._append_log(job_id, f"[repo] {repository} no deletable digests.")
+                        continue
+
+                    for digest in digests:
+                        try:
+                            self._delete_manifest_digest(client, repository, digest)
+                            deleted_count += 1
+                            self._append_log(job_id, f"[delete] {repository}@{digest}")
+                        except Exception as exc:
+                            failures += 1
+                            self._append_log(
+                                job_id,
+                                f"[error] delete failed {repository}@{digest}: {exc}",
+                            )
+
+            if failures > 0:
+                self._update_job_status(job_id, "failed", f"{failures} error(s)")
+                self._append_log(
+                    job_id,
+                    f"[done] repository delete finished with errors, deleted={deleted_count}.",
+                )
+            else:
+                self._update_job_status(job_id, "success")
+                self._append_log(
+                    job_id,
+                    f"[done] repository delete finished successfully, deleted={deleted_count}.",
+                )
+        except Exception as exc:
+            self._update_job_status(job_id, "failed", str(exc))
+            self._append_log(job_id, f"[error] repository delete job failed: {exc}")
 
     def get_job(self, job_id: str) -> SyncJob | None:
         with self._lock:

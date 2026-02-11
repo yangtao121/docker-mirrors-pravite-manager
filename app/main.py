@@ -68,6 +68,10 @@ class RemotePrefixJobRequest(BaseModel):
     )
 
 
+class RepositoryDeleteJobRequest(BaseModel):
+    repositories: list[str] = Field(..., min_length=1, description="Selected repositories")
+
+
 def _raise_registry_error(exc: RegistryError) -> None:
     raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
@@ -96,9 +100,32 @@ def health() -> dict[str, object]:
 def list_repositories(
     n: int = Query(default=100, ge=1, le=settings.max_catalog_results),
     last: str | None = Query(default=None),
+    non_empty_only: bool = Query(default=False),
 ) -> dict[str, object]:
     try:
-        return registry_client.list_repositories(n=n, last=last)
+        result = registry_client.list_repositories(n=n, last=last)
+        if not non_empty_only:
+            return result
+
+        repositories = result.get("repositories") or []
+        if not isinstance(repositories, list):
+            repositories = []
+
+        filtered_repositories: list[str] = []
+        for repository in repositories:
+            if not isinstance(repository, str) or not repository:
+                continue
+            try:
+                if registry_client.list_tags(repository):
+                    filtered_repositories.append(repository)
+            except RegistryError:
+                # Treat inaccessible repositories as empty for this view.
+                continue
+
+        return {
+            "repositories": filtered_repositories,
+            "next": result.get("next"),
+        }
     except RegistryError as exc:
         _raise_registry_error(exc)
 
@@ -190,6 +217,19 @@ def create_remote_prefix_job(request: RemotePrefixJobRequest) -> dict[str, objec
             prefix_value=request.prefix_value,
             cleanup_source_tag=request.cleanup_source_tag,
             target_registry_host=request.target_registry_host,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return job.to_dict()
+
+
+@app.post("/api/repository-delete-jobs")
+def create_repository_delete_job(request: RepositoryDeleteJobRequest) -> dict[str, object]:
+    try:
+        job = sync_job_manager.create_repository_delete_job(
+            repositories=request.repositories,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

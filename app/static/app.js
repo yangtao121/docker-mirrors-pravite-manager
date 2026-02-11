@@ -2,6 +2,7 @@ const state = {
   repositories: [],
   filteredRepositories: [],
   nextCursor: null,
+  nonEmptyOnly: true,
   selectedRepository: null,
   activeJobId: null,
   jobPollTimer: null,
@@ -24,6 +25,7 @@ const dom = {
   remotePrefixValue: document.querySelector("#remotePrefixValue"),
   cleanupRemoteSourceTag: document.querySelector("#cleanupRemoteSourceTag"),
   runRemotePrefixBtn: document.querySelector("#runRemotePrefixBtn"),
+  runRemoteDeleteBtn: document.querySelector("#runRemoteDeleteBtn"),
   remoteHint: document.querySelector("#remoteHint"),
   repoTitle: document.querySelector("#repoTitle"),
   repoMeta: document.querySelector("#repoMeta"),
@@ -146,7 +148,7 @@ function applyRepoFilter() {
 function renderRepositoryList() {
   dom.repoList.innerHTML = "";
   if (state.filteredRepositories.length === 0) {
-    dom.repoList.innerHTML = `<li class="repo-empty">未找到仓库。</li>`;
+    dom.repoList.innerHTML = `<li class="repo-empty">未找到可用仓库（已自动过滤空仓库）。</li>`;
     updateRemoteHint();
     return;
   }
@@ -180,6 +182,9 @@ function updateRemoteHint() {
 async function loadRepositories({ append = false } = {}) {
   const params = new URLSearchParams();
   params.set("n", "100");
+  if (state.nonEmptyOnly) {
+    params.set("non_empty_only", "true");
+  }
   if (append && state.nextCursor) {
     params.set("last", state.nextCursor);
   }
@@ -513,6 +518,38 @@ async function submitRemotePrefixJob() {
   }
 }
 
+async function submitRepositoryDeleteJob() {
+  if (state.selectedRemoteRepos.size === 0) {
+    window.alert("请至少选择一个远程仓库。");
+    return;
+  }
+  const confirmed = window.confirm(
+    `确认删除已选中的 ${state.selectedRemoteRepos.size} 个仓库吗？\n此操作会删除仓库下所有标签。`,
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  dom.runRemoteDeleteBtn.disabled = true;
+  try {
+    const created = await request("/api/repository-delete-jobs", {
+      method: "POST",
+      body: JSON.stringify({
+        repositories: [...state.selectedRemoteRepos],
+      }),
+    });
+    setJobStatus(created.status);
+    renderJobLogs(created.logs || []);
+    startJobPolling(created.id);
+    await loadRecentJobs();
+  } catch (error) {
+    setJobStatus("failed");
+    renderJobLogs([`创建仓库删除任务失败：${error.message}`]);
+  } finally {
+    dom.runRemoteDeleteBtn.disabled = false;
+  }
+}
+
 function renderRecentJobs(jobs = []) {
   dom.jobList.innerHTML = "";
   if (jobs.length === 0) {
@@ -528,7 +565,7 @@ function renderRecentJobs(jobs = []) {
         <span class="job-id">${job.id}</span>
         <span class="chip ${job.status}">${({ running: "运行中", success: "成功", failed: "失败", idle: "空闲" }[job.status] || job.status)}</span>
       </div>
-      <div class="job-image">[${job.job_type === "local-push" ? "本地批量上传" : job.job_type === "remote-prefix" ? "远程前缀重命名" : "远程同步"}] ${job.source_image}</div>
+      <div class="job-image">[${job.job_type === "local-push" ? "本地批量上传" : job.job_type === "remote-prefix" ? "远程前缀重命名" : job.job_type === "repo-delete" ? "仓库批量删除" : "远程同步"}] ${job.source_image}</div>
       <div class="job-image">=> ${job.target_image}（${job.total_items || 1} 项）</div>
       <div class="job-id">${formatDate(job.updated_at)}</div>
     `;
@@ -578,6 +615,7 @@ function bindEvents() {
     renderRepositoryList();
   });
   dom.runRemotePrefixBtn.addEventListener("click", submitRemotePrefixJob);
+  dom.runRemoteDeleteBtn.addEventListener("click", submitRepositoryDeleteJob);
   dom.refreshTagsBtn.addEventListener("click", async () => {
     try {
       await loadTags();

@@ -130,6 +130,12 @@ class RegistryClient:
 
         if response.status_code >= 400:
             body_preview = response.text[:300] if response.text else ""
+            if method.upper() == "DELETE" and response.status_code == 405:
+                raise RegistryError(
+                    "Registry denied manifest delete (405). "
+                    "Enable REGISTRY_STORAGE_DELETE_ENABLED=true on registry and restart it.",
+                    status_code=405,
+                )
             raise RegistryError(
                 f"Registry API error {response.status_code}: {body_preview}",
                 status_code=response.status_code,

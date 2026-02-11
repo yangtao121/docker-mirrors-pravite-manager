@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <div class="background">
+    <div class="background" aria-hidden="true">
       <div class="orb orb-a"></div>
       <div class="orb orb-b"></div>
       <div class="mesh"></div>
@@ -19,86 +19,119 @@
           <p class="kicker">Docker Registry v2</p>
           <h1>私有镜像仓库管理台</h1>
         </div>
-        <div class="status-wrap">
+        <div class="status-wrap" aria-live="polite">
           <span class="status-dot" id="healthDot"></span>
           <span id="healthText">正在检查仓库状态...</span>
         </div>
       </header>
 
       <main class="layout">
-        <section class="panel repository-panel">
-          <div class="panel-title-row">
+        <section class="panel repository-panel" aria-label="仓库管理">
+          <div class="section-head panel-title-row">
             <h2>仓库列表</h2>
-            <button id="refreshReposBtn" class="ghost-btn">刷新</button>
+            <button id="refreshReposBtn" class="ghost-btn" aria-label="刷新仓库列表">刷新</button>
           </div>
-          <label class="input-label" for="repoSearch">搜索</label>
-          <input id="repoSearch" class="text-input" placeholder="输入仓库名..." />
-          <div class="local-actions">
-            <button id="selectAllRemoteBtn" class="ghost-btn">全选可见仓库</button>
-            <button id="clearRemoteBtn" class="ghost-btn">清空仓库选择</button>
-          </div>
-          <label class="input-label" for="remotePrefixMode">远程重命名前缀模式</label>
-          <select id="remotePrefixMode" class="text-input">
-            <option value="add">批量添加前缀</option>
-            <option value="remove">批量移除前缀</option>
-          </select>
-          <label class="input-label" for="remotePrefixValue">远程前缀值</label>
-          <input id="remotePrefixValue" class="text-input" placeholder="例如：x86 或 arm 或 prod/x86" />
-          <label class="toggle-item">
-            <input id="cleanupRemoteSourceTag" type="checkbox" />
-            <span>重命名成功后删除旧仓库标签</span>
-          </label>
-          <button id="runRemotePrefixBtn" class="primary-btn wide">一键远程重命名</button>
-          <p id="remoteHint" class="meta-line">已选仓库：0</p>
-          <ul id="repoList" class="repo-list"></ul>
-          <button id="loadMoreBtn" class="ghost-btn wide">加载更多</button>
-        </section>
 
-        <section class="panel tags-panel">
-          <div class="panel-title-row">
-            <h2 id="repoTitle">请选择一个仓库</h2>
-            <button id="refreshTagsBtn" class="ghost-btn">刷新标签</button>
+          <div class="section-block">
+            <label class="input-label" for="repoSearch">搜索</label>
+            <input id="repoSearch" class="text-input" placeholder="输入仓库名..." />
           </div>
-          <p id="repoMeta" class="meta-line">尚未选择仓库。</p>
 
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>标签</th>
-                  <th>摘要</th>
-                  <th>大小</th>
-                  <th>创建时间</th>
-                  <th class="th-action">操作</th>
-                </tr>
-              </thead>
-              <tbody id="tagTableBody"></tbody>
-            </table>
+          <div class="section-block">
+            <div class="local-actions">
+              <button id="selectAllRemoteBtn" class="ghost-btn" aria-label="全选可见仓库">全选可见仓库</button>
+              <button id="clearRemoteBtn" class="ghost-btn" aria-label="清空仓库选择">清空仓库选择</button>
+            </div>
+          </div>
+
+          <div class="section-block">
+            <label class="input-label" for="remotePrefixMode">远程重命名前缀模式</label>
+            <select id="remotePrefixMode" class="text-input">
+              <option value="add">批量添加前缀</option>
+              <option value="remove">批量移除前缀</option>
+            </select>
+            <label class="input-label" for="remotePrefixValue">远程前缀值</label>
+            <input id="remotePrefixValue" class="text-input" placeholder="例如：x86 或 arm 或 prod/x86" />
+            <label class="toggle-item">
+              <input id="cleanupRemoteSourceTag" type="checkbox" />
+              <span>重命名成功后删除旧仓库标签</span>
+            </label>
+          </div>
+
+          <div class="section-block action-group">
+            <button id="runRemotePrefixBtn" class="primary-btn wide">一键远程重命名</button>
+          </div>
+          <div class="danger-zone">
+            <button id="runRemoteDeleteBtn" class="danger-btn wide">一键删除已选仓库</button>
+          </div>
+
+          <div class="section-block">
+            <p id="remoteHint" class="meta-line" aria-live="polite">已选仓库：0</p>
+            <ul id="repoList" class="repo-list" aria-label="远程仓库列表"></ul>
+            <button id="loadMoreBtn" class="ghost-btn wide">加载更多</button>
           </div>
         </section>
 
-        <aside class="panel sync-panel">
-          <h2>远程镜像同步</h2>
-          <p class="meta-line">
-            从外部仓库拉取镜像，然后推送到你的私有仓库。
-          </p>
-          <form id="syncForm" class="sync-form">
-            <label class="input-label" for="sourceImage">源镜像</label>
-            <input id="sourceImage" class="text-input" placeholder="例如：nginx:1.27" required />
+        <div class="middle-stack">
+          <section class="panel task-terminal-panel" aria-label="当前任务终端">
+            <div class="panel-title-row">
+              <h2>当前任务终端</h2>
+              <span id="jobStatusChip" class="chip" aria-live="polite">空闲</span>
+            </div>
+            <pre id="jobLogBox" class="log-box prominent-log" aria-live="polite">暂无运行中的任务。</pre>
+          </section>
 
-            <label class="input-label" for="targetRepo">目标仓库（可选）</label>
-            <input id="targetRepo" class="text-input" placeholder="例如：platform/nginx" />
+          <section class="panel tags-panel" aria-label="标签管理">
+            <div class="section-head panel-title-row">
+              <h2 id="repoTitle">请选择一个仓库</h2>
+              <button id="refreshTagsBtn" class="ghost-btn" aria-label="刷新当前仓库标签">刷新标签</button>
+            </div>
+            <p id="repoMeta" class="meta-line" aria-live="polite">尚未选择仓库。</p>
 
-            <label class="input-label" for="targetTag">目标标签（可选）</label>
-            <input id="targetTag" class="text-input" placeholder="例如：stable" />
+            <div class="table-wrap">
+              <table aria-label="仓库标签列表">
+                <thead>
+                  <tr>
+                    <th>标签</th>
+                    <th>摘要</th>
+                    <th>大小</th>
+                    <th>创建时间</th>
+                    <th class="th-action">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="tagTableBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
 
-            <button id="syncBtn" class="primary-btn" type="submit">开始同步</button>
-          </form>
+        <aside class="panel sync-panel" aria-label="同步与任务">
+          <div class="section-head">
+            <h2>远程镜像同步</h2>
+            <p class="meta-line">
+              从外部仓库拉取镜像，然后推送到你的私有仓库。
+            </p>
+          </div>
+
+          <div class="section-block">
+            <form id="syncForm" class="sync-form">
+              <label class="input-label" for="sourceImage">源镜像</label>
+              <input id="sourceImage" class="text-input" placeholder="例如：nginx:1.27" required />
+
+              <label class="input-label" for="targetRepo">目标仓库（可选）</label>
+              <input id="targetRepo" class="text-input" placeholder="例如：platform/nginx" />
+
+              <label class="input-label" for="targetTag">目标标签（可选）</label>
+              <input id="targetTag" class="text-input" placeholder="例如：stable" />
+
+              <button id="syncBtn" class="primary-btn" type="submit">开始同步</button>
+            </form>
+          </div>
 
           <div class="job-panel">
             <div class="panel-title-row">
               <h3>本地镜像批量上传</h3>
-              <button id="refreshLocalBtn" class="ghost-btn">扫描本地镜像</button>
+              <button id="refreshLocalBtn" class="ghost-btn" aria-label="扫描本地镜像">扫描本地镜像</button>
             </div>
             <p class="meta-line" id="localHint">
               选择本地镜像，设置架构后缀和前缀策略，一键上传。
@@ -146,18 +179,10 @@
 
           <div class="job-panel">
             <div class="panel-title-row">
-              <h3>当前任务</h3>
-              <span id="jobStatusChip" class="chip">空闲</span>
-            </div>
-            <pre id="jobLogBox" class="log-box">暂无运行中的任务。</pre>
-          </div>
-
-          <div class="job-panel">
-            <div class="panel-title-row">
               <h3>最近任务</h3>
-              <button id="refreshJobsBtn" class="ghost-btn">刷新</button>
+              <button id="refreshJobsBtn" class="ghost-btn" aria-label="刷新最近任务">刷新</button>
             </div>
-            <ul id="jobList" class="job-list"></ul>
+            <ul id="jobList" class="job-list" aria-label="最近任务列表"></ul>
           </div>
         </aside>
       </main>
