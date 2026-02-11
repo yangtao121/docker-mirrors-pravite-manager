@@ -69,6 +69,11 @@ Web 中创建同步任务时，会在服务容器内执行：
 1. `docker pull <source_image>`
 2. `docker tag <source_image> <REGISTRY_PUSH_HOST>/<target_repo>:<target_tag>`
 3. `docker push <REGISTRY_PUSH_HOST>/<target_repo>:<target_tag>`
+4. （默认开启）`docker image rm <REGISTRY_PUSH_HOST>/<target_repo>:<target_tag>`
+5. （默认开启）`docker image rm <source_image>`
+6. （默认开启）`docker image prune -f`
+
+“远程镜像同步”面板可关闭 `同步完成后清理本地镜像标签`。若开启，任务会尽量回收同步过程中产生的本地冗余镜像标签；清理命令失败不会导致任务整体失败。
 
 由于调用宿主机 Docker（通过挂载 `/var/run/docker.sock`），请确保宿主机 Docker daemon 对私有仓库地址已正确配置（例如 insecure registry 或 TLS 证书）。
 

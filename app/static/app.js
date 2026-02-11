@@ -35,6 +35,7 @@ const dom = {
   sourceImage: document.querySelector("#sourceImage"),
   targetRepo: document.querySelector("#targetRepo"),
   targetTag: document.querySelector("#targetTag"),
+  cleanupMirrorLocalImages: document.querySelector("#cleanupMirrorLocalImages"),
   syncBtn: document.querySelector("#syncBtn"),
   refreshLocalBtn: document.querySelector("#refreshLocalBtn"),
   localHint: document.querySelector("#localHint"),
@@ -359,6 +360,7 @@ async function submitMirrorJob(event) {
       source_image: sourceImage,
       target_repository: targetRepo || null,
       target_tag: targetTag || null,
+      cleanup_local_images: Boolean(dom.cleanupMirrorLocalImages.checked),
     };
     const created = await request("/api/sync-jobs", {
       method: "POST",

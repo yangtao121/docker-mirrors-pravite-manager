@@ -32,6 +32,10 @@ class SyncJobRequest(BaseModel):
     source_image: str = Field(..., min_length=1, description="Image to pull, e.g. nginx:1.27")
     target_repository: str | None = Field(default=None, description="Target repository name")
     target_tag: str | None = Field(default=None, description="Target tag")
+    cleanup_local_images: bool = Field(
+        default=True,
+        description="Cleanup local source/target tags after successful push",
+    )
 
 
 class LocalPushJobRequest(BaseModel):
@@ -173,6 +177,7 @@ def create_sync_job(request: SyncJobRequest) -> dict[str, object]:
             source_image=request.source_image,
             target_repository=request.target_repository,
             target_tag=request.target_tag,
+            cleanup_local_images=request.cleanup_local_images,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

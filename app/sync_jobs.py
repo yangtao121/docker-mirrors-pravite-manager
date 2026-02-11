@@ -141,6 +141,7 @@ class SyncJobManager:
         source_image: str,
         target_repository: str | None = None,
         target_tag: str | None = None,
+        cleanup_local_images: bool = True,
     ) -> SyncJob:
         default_repo, default_tag = _split_source_image(source_image)
         repository = (target_repository or "").strip() or default_repo
@@ -152,6 +153,14 @@ class SyncJobManager:
             ["docker", "tag", source_image.strip(), target_image],
             ["docker", "push", target_image],
         ]
+        if cleanup_local_images:
+            commands.extend(
+                [
+                    ["docker", "image", "rm", target_image],
+                    ["docker", "image", "rm", source_image.strip()],
+                    ["docker", "image", "prune", "-f"],
+                ]
+            )
         job = SyncJob(
             id=uuid4().hex[:12],
             source_image=source_image.strip(),
