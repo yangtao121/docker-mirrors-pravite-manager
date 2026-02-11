@@ -5,6 +5,9 @@ const state = {
   selectedRepository: null,
   activeJobId: null,
   jobPollTimer: null,
+  localImages: [],
+  selectedLocalRefs: new Set(),
+  detectedArch: "unknown",
 };
 
 const dom = {
@@ -23,6 +26,18 @@ const dom = {
   targetRepo: document.querySelector("#targetRepo"),
   targetTag: document.querySelector("#targetTag"),
   syncBtn: document.querySelector("#syncBtn"),
+  refreshLocalBtn: document.querySelector("#refreshLocalBtn"),
+  localHint: document.querySelector("#localHint"),
+  archMode: document.querySelector("#archMode"),
+  archValue: document.querySelector("#archValue"),
+  prefixMode: document.querySelector("#prefixMode"),
+  prefixValue: document.querySelector("#prefixValue"),
+  selectAllLocalBtn: document.querySelector("#selectAllLocalBtn"),
+  clearLocalBtn: document.querySelector("#clearLocalBtn"),
+  pushLocalBtn: document.querySelector("#pushLocalBtn"),
+  cleanupLocalTag: document.querySelector("#cleanupLocalTag"),
+  cleanupRegistrySourceTag: document.querySelector("#cleanupRegistrySourceTag"),
+  localImageList: document.querySelector("#localImageList"),
   jobStatusChip: document.querySelector("#jobStatusChip"),
   jobLogBox: document.querySelector("#jobLogBox"),
   jobList: document.querySelector("#jobList"),
@@ -93,9 +108,16 @@ function setHealth(healthy, text) {
   dom.healthDot.style.background = healthy ? "var(--ok)" : "var(--danger)";
 }
 
+function updateLocalHint() {
+  const selected = state.selectedLocalRefs.size;
+  dom.localHint.textContent = `Detected arch: ${state.detectedArch} | Selected: ${selected} | Total local images: ${state.localImages.length}`;
+}
+
 async function refreshHealth() {
   try {
     const result = await request("/api/health");
+    state.detectedArch = result.detected_arch || state.detectedArch;
+    updateLocalHint();
     const message = result.registry_healthy
       ? `Registry Online (${result.registry_push_host})`
       : `Registry Unreachable (${result.registry_push_host})`;
@@ -246,6 +268,13 @@ function stopJobPolling() {
   }
 }
 
+async function onJobCompleted() {
+  await Promise.allSettled([loadRepositories(), loadRecentJobs(), loadLocalImages()]);
+  if (state.selectedRepository) {
+    await loadTags();
+  }
+}
+
 async function pollJob(jobId) {
   try {
     const job = await request(`/api/sync-jobs/${jobId}`);
@@ -253,8 +282,7 @@ async function pollJob(jobId) {
     renderJobLogs(job.logs || []);
     if (job.status === "success" || job.status === "failed") {
       stopJobPolling();
-      await loadTags();
-      await loadRecentJobs();
+      await onJobCompleted();
     }
   } catch (error) {
     stopJobPolling();
@@ -274,7 +302,7 @@ function startJobPolling(jobId) {
   }, 1800);
 }
 
-async function submitSyncJob(event) {
+async function submitMirrorJob(event) {
   event.preventDefault();
   const sourceImage = dom.sourceImage.value.trim();
   const targetRepo = dom.targetRepo.value.trim();
@@ -307,6 +335,106 @@ async function submitSyncJob(event) {
   }
 }
 
+function renderLocalImages() {
+  dom.localImageList.innerHTML = "";
+  if (state.localImages.length === 0) {
+    dom.localImageList.innerHTML = `<li class="job-empty">No local images found.</li>`;
+    updateLocalHint();
+    return;
+  }
+
+  for (const image of state.localImages) {
+    const li = document.createElement("li");
+    li.className = "local-item";
+    const checked = state.selectedLocalRefs.has(image.reference) ? "checked" : "";
+    li.innerHTML = `
+      <div class="local-row">
+        <label class="local-ref">
+          <input class="select-input" type="checkbox" data-ref="${image.reference}" ${checked} />
+          ${image.reference}
+        </label>
+        <span class="local-meta">${image.size || "-"}</span>
+      </div>
+      <div class="local-meta">arch=${image.architecture || "-"} os=${image.os || "-"}</div>
+    `;
+    dom.localImageList.appendChild(li);
+  }
+  updateLocalHint();
+}
+
+async function loadLocalImages() {
+  const result = await request("/api/local-images?limit=500");
+  state.localImages = Array.isArray(result.images) ? result.images : [];
+  state.detectedArch = result.detected_arch || state.detectedArch;
+
+  const existingRefs = new Set(state.localImages.map((item) => item.reference));
+  for (const ref of [...state.selectedLocalRefs]) {
+    if (!existingRefs.has(ref)) {
+      state.selectedLocalRefs.delete(ref);
+    }
+  }
+  if (!dom.archValue.value.trim()) {
+    dom.archValue.value = state.detectedArch;
+  }
+  renderLocalImages();
+}
+
+function collectSelectedLocalRefs() {
+  const checkboxes = dom.localImageList.querySelectorAll("input[type='checkbox'][data-ref]");
+  state.selectedLocalRefs.clear();
+  for (const box of checkboxes) {
+    if (box.checked) {
+      state.selectedLocalRefs.add(box.dataset.ref);
+    }
+  }
+}
+
+async function submitLocalPushJob() {
+  collectSelectedLocalRefs();
+  if (state.selectedLocalRefs.size === 0) {
+    window.alert("Please select at least one local image.");
+    return;
+  }
+
+  const archMode = dom.archMode.value;
+  const archValue = dom.archValue.value.trim();
+  const prefixMode = dom.prefixMode.value;
+  const prefixValue = dom.prefixValue.value.trim();
+  if (archMode === "custom" && !archValue) {
+    window.alert("Custom arch cannot be empty.");
+    return;
+  }
+  if (prefixMode !== "none" && !prefixValue) {
+    window.alert("Prefix value cannot be empty when prefix mode is add/remove.");
+    return;
+  }
+
+  dom.pushLocalBtn.disabled = true;
+  try {
+    const created = await request("/api/local-push-jobs", {
+      method: "POST",
+      body: JSON.stringify({
+        image_refs: [...state.selectedLocalRefs],
+        arch_mode: archMode,
+        arch_value: archValue,
+        prefix_mode: prefixMode,
+        prefix_value: prefixValue,
+        cleanup_local_tag: Boolean(dom.cleanupLocalTag.checked),
+        cleanup_registry_source_tag: Boolean(dom.cleanupRegistrySourceTag.checked),
+      }),
+    });
+    setJobStatus(created.status);
+    renderJobLogs(created.logs || []);
+    startJobPolling(created.id);
+    await loadRecentJobs();
+  } catch (error) {
+    setJobStatus("failed");
+    renderJobLogs([`Create local push job failed: ${error.message}`]);
+  } finally {
+    dom.pushLocalBtn.disabled = false;
+  }
+}
+
 function renderRecentJobs(jobs = []) {
   dom.jobList.innerHTML = "";
   if (jobs.length === 0) {
@@ -322,18 +450,18 @@ function renderRecentJobs(jobs = []) {
         <span class="job-id">${job.id}</span>
         <span class="chip ${job.status}">${job.status}</span>
       </div>
-      <div class="job-image">${job.source_image}</div>
-      <div class="job-image">=> ${job.target_image}</div>
+      <div class="job-image">[${job.job_type || "mirror"}] ${job.source_image}</div>
+      <div class="job-image">=> ${job.target_image} (${job.total_items || 1} item)</div>
       <div class="job-id">${formatDate(job.updated_at)}</div>
     `;
     li.addEventListener("click", async () => {
-      state.activeJobId = job.id;
-      setJobStatus(job.status);
-      renderJobLogs(job.logs || []);
-      if (job.status === "running") {
-        startJobPolling(job.id);
+      const detail = await request(`/api/sync-jobs/${job.id}`);
+      state.activeJobId = detail.id;
+      setJobStatus(detail.status);
+      renderJobLogs(detail.logs || []);
+      if (detail.status === "running") {
+        startJobPolling(detail.id);
       }
-      await pollJob(job.id);
     });
     dom.jobList.appendChild(li);
   }
@@ -375,13 +503,52 @@ function bindEvents() {
       window.alert(`Refresh jobs failed: ${error.message}`);
     }
   });
-  dom.syncForm.addEventListener("submit", submitSyncJob);
+  dom.syncForm.addEventListener("submit", submitMirrorJob);
+  dom.refreshLocalBtn.addEventListener("click", async () => {
+    try {
+      await loadLocalImages();
+    } catch (error) {
+      window.alert(`Load local images failed: ${error.message}`);
+    }
+  });
+  dom.selectAllLocalBtn.addEventListener("click", () => {
+    for (const item of state.localImages) {
+      state.selectedLocalRefs.add(item.reference);
+    }
+    renderLocalImages();
+  });
+  dom.clearLocalBtn.addEventListener("click", () => {
+    state.selectedLocalRefs.clear();
+    renderLocalImages();
+  });
+  dom.pushLocalBtn.addEventListener("click", submitLocalPushJob);
+  dom.localImageList.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    const ref = target.dataset.ref;
+    if (!ref) {
+      return;
+    }
+    if (target.checked) {
+      state.selectedLocalRefs.add(ref);
+    } else {
+      state.selectedLocalRefs.delete(ref);
+    }
+    updateLocalHint();
+  });
 }
 
 async function bootstrap() {
   bindEvents();
   setJobStatus("idle");
-  await Promise.all([refreshHealth(), loadRepositories(), loadRecentJobs()]);
+  await Promise.all([
+    refreshHealth(),
+    loadRepositories(),
+    loadRecentJobs(),
+    loadLocalImages(),
+  ]);
   if (state.repositories.length > 0) {
     await selectRepository(state.repositories[0]);
   } else {

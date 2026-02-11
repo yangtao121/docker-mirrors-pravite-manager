@@ -80,6 +80,55 @@
 
           <div class="job-panel">
             <div class="panel-title-row">
+              <h3>Local Images Batch Push</h3>
+              <button id="refreshLocalBtn" class="ghost-btn">Scan Local</button>
+            </div>
+            <p class="meta-line" id="localHint">
+              Select local images, choose arch suffix and prefix strategy, then push in one click.
+            </p>
+
+            <div class="local-controls">
+              <label class="input-label" for="archMode">Arch mode</label>
+              <select id="archMode" class="text-input">
+                <option value="auto">Auto detect host arch</option>
+                <option value="custom">Custom</option>
+                <option value="none">No arch suffix</option>
+              </select>
+
+              <label class="input-label" for="archValue">Custom arch (for custom mode)</label>
+              <input id="archValue" class="text-input" placeholder="e.g. x86 or arm" />
+
+              <label class="input-label" for="prefixMode">Prefix mode</label>
+              <select id="prefixMode" class="text-input">
+                <option value="none">No prefix change</option>
+                <option value="add">Batch add prefix</option>
+                <option value="remove">Batch remove prefix</option>
+              </select>
+
+              <label class="input-label" for="prefixValue">Prefix value</label>
+              <input id="prefixValue" class="text-input" placeholder="e.g. x86, arm, prod/x86" />
+            </div>
+
+            <div class="local-actions">
+              <button id="selectAllLocalBtn" class="ghost-btn">Select All</button>
+              <button id="clearLocalBtn" class="ghost-btn">Clear</button>
+              <button id="pushLocalBtn" class="primary-btn">Push Selected</button>
+            </div>
+            <div class="toggle-grid">
+              <label class="toggle-item">
+                <input id="cleanupLocalTag" type="checkbox" />
+                <span>Upload success then remove local old tag</span>
+              </label>
+              <label class="toggle-item">
+                <input id="cleanupRegistrySourceTag" type="checkbox" />
+                <span>Upload success then remove registry old tag</span>
+              </label>
+            </div>
+            <ul id="localImageList" class="local-list"></ul>
+          </div>
+
+          <div class="job-panel">
+            <div class="panel-title-row">
               <h3>Current Job</h3>
               <span id="jobStatusChip" class="chip">IDLE</span>
             </div>

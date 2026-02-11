@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.config import load_settings
 from app.registry_client import RegistryClient, RegistryError
-from app.sync_jobs import SyncJobManager
+from app.sync_jobs import SyncJobManager, detect_arch_label
 
 
 settings = load_settings()
@@ -19,6 +19,7 @@ registry_client = RegistryClient(
 )
 sync_job_manager = SyncJobManager(
     registry_push_host=settings.registry_push_host,
+    registry_api_url=settings.registry_api_url,
     retention=settings.sync_job_retention,
 )
 static_dir = Path(__file__).parent / "static"
@@ -31,6 +32,26 @@ class SyncJobRequest(BaseModel):
     source_image: str = Field(..., min_length=1, description="Image to pull, e.g. nginx:1.27")
     target_repository: str | None = Field(default=None, description="Target repository name")
     target_tag: str | None = Field(default=None, description="Target tag")
+
+
+class LocalPushJobRequest(BaseModel):
+    image_refs: list[str] = Field(..., min_length=1, description="Selected local image refs")
+    prefix_mode: str = Field(default="none", description="none|add|remove")
+    prefix_value: str = Field(default="", description="Prefix value for batch rename")
+    arch_mode: str = Field(default="auto", description="auto|custom|none")
+    arch_value: str = Field(default="", description="Custom arch label when arch_mode=custom")
+    target_registry_host: str | None = Field(
+        default=None,
+        description="Override registry host, default from REGISTRY_PUSH_HOST",
+    )
+    cleanup_local_tag: bool = Field(
+        default=False,
+        description="Delete local source tag after successful push",
+    )
+    cleanup_registry_source_tag: bool = Field(
+        default=False,
+        description="Delete source tag from registry after successful push",
+    )
 
 
 def _raise_registry_error(exc: RegistryError) -> None:
@@ -53,6 +74,7 @@ def health() -> dict[str, object]:
         "registry_api_url": settings.registry_api_url,
         "registry_push_host": settings.registry_push_host,
         "registry_healthy": registry_client.ping(),
+        "detected_arch": detect_arch_label(),
     }
 
 
@@ -113,6 +135,35 @@ def create_sync_job(request: SyncJobRequest) -> dict[str, object]:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return job.to_dict()
+
+
+@app.get("/api/local-images")
+def list_local_images(limit: int = Query(default=300, ge=1, le=1000)) -> dict[str, object]:
+    try:
+        images = sync_job_manager.list_local_images(limit=limit)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"images": images, "detected_arch": detect_arch_label()}
+
+
+@app.post("/api/local-push-jobs")
+def create_local_push_job(request: LocalPushJobRequest) -> dict[str, object]:
+    try:
+        job = sync_job_manager.create_local_push_job(
+            image_refs=request.image_refs,
+            prefix_mode=request.prefix_mode,
+            prefix_value=request.prefix_value,
+            arch_mode=request.arch_mode,
+            arch_value=request.arch_value,
+            target_registry_host=request.target_registry_host,
+            cleanup_local_tag=request.cleanup_local_tag,
+            cleanup_registry_source_tag=request.cleanup_registry_source_tag,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     return job.to_dict()
 
 
