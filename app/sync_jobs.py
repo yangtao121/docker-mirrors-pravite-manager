@@ -89,6 +89,12 @@ def _infer_pull_platform(repository: str, tag: str) -> str | None:
     return None
 
 
+def _is_local_cleanup_command(command: list[str]) -> bool:
+    if len(command) < 3:
+        return False
+    return command[0] == "docker" and command[1] == "image" and command[2] in {"rm", "prune"}
+
+
 @dataclass
 class SyncJob:
     id: str
@@ -305,12 +311,17 @@ class SyncJobManager:
                         mappings.append(f"{source_ref} => {target_ref}")
                     commands.append(["docker", "tag", source_ref, target_ref])
                     commands.append(["docker", "push", target_ref])
+                    # Remove local temp tags immediately after push to reduce disk usage.
+                    commands.append(["docker", "image", "rm", target_ref, source_ref])
                     total_tags += 1
                     if cleanup_source_tag:
                         cleanup_targets.append((repository, tag))
 
         if total_tags == 0:
             raise ValueError("No tags found to rename for selected repositories.")
+
+        # Final pass to reclaim dangling layers produced during retag/push workflow.
+        commands.append(["docker", "image", "prune", "-f"])
 
         job = SyncJob(
             id=uuid4().hex[:12],
@@ -576,6 +587,9 @@ class SyncJobManager:
                 try:
                     self._run_command(job_id, command)
                 except Exception as exc:
+                    if _is_local_cleanup_command(command):
+                        self._append_log(job_id, f"[cleanup-warn] {exc}")
+                        continue
                     failures += 1
                     self._append_log(job_id, f"[error] {exc}")
                     if not continue_on_error:
