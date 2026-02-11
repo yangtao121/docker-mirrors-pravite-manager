@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Registry Manager</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="background">
+      <div class="orb orb-a"></div>
+      <div class="orb orb-b"></div>
+      <div class="mesh"></div>
+    </div>
+
+    <div class="app">
+      <header class="header panel">
+        <div>
+          <p class="kicker">Docker Registry v2</p>
+          <h1>Private Registry Manager</h1>
+        </div>
+        <div class="status-wrap">
+          <span class="status-dot" id="healthDot"></span>
+          <span id="healthText">Checking registry...</span>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel repository-panel">
+          <div class="panel-title-row">
+            <h2>Repositories</h2>
+            <button id="refreshReposBtn" class="ghost-btn">Refresh</button>
+          </div>
+          <label class="input-label" for="repoSearch">Search</label>
+          <input id="repoSearch" class="text-input" placeholder="repo name..." />
+          <ul id="repoList" class="repo-list"></ul>
+          <button id="loadMoreBtn" class="ghost-btn wide">Load More</button>
+        </section>
+
+        <section class="panel tags-panel">
+          <div class="panel-title-row">
+            <h2 id="repoTitle">Select a repository</h2>
+            <button id="refreshTagsBtn" class="ghost-btn">Refresh Tags</button>
+          </div>
+          <p id="repoMeta" class="meta-line">No repository selected.</p>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tag</th>
+                  <th>Digest</th>
+                  <th>Size</th>
+                  <th>Created</th>
+                  <th class="th-action">Action</th>
+                </tr>
+              </thead>
+              <tbody id="tagTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside class="panel sync-panel">
+          <h2>Mirror Image</h2>
+          <p class="meta-line">
+            Pull image from remote registry, then push to your private registry.
+          </p>
+          <form id="syncForm" class="sync-form">
+            <label class="input-label" for="sourceImage">Source image</label>
+            <input id="sourceImage" class="text-input" placeholder="e.g. nginx:1.27" required />
+
+            <label class="input-label" for="targetRepo">Target repository (optional)</label>
+            <input id="targetRepo" class="text-input" placeholder="e.g. platform/nginx" />
+
+            <label class="input-label" for="targetTag">Target tag (optional)</label>
+            <input id="targetTag" class="text-input" placeholder="e.g. stable" />
+
+            <button id="syncBtn" class="primary-btn" type="submit">Start Mirror</button>
+          </form>
+
+          <div class="job-panel">
+            <div class="panel-title-row">
+              <h3>Current Job</h3>
+              <span id="jobStatusChip" class="chip">IDLE</span>
+            </div>
+            <pre id="jobLogBox" class="log-box">No running job.</pre>
+          </div>
+
+          <div class="job-panel">
+            <div class="panel-title-row">
+              <h3>Recent Jobs</h3>
+              <button id="refreshJobsBtn" class="ghost-btn">Refresh</button>
+            </div>
+            <ul id="jobList" class="job-list"></ul>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

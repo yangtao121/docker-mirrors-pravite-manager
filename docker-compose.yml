@@ -1,0 +1,15 @@
+services:
+  registry-manager:
+    build: .
+    container_name: registry-manager
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - REGISTRY_API_URL=http://192.168.5.54:5000
+      - REGISTRY_PUSH_HOST=192.168.5.54:5000
+      - REQUEST_TIMEOUT_SEC=20
+      - MAX_CATALOG_RESULTS=200
+      - SYNC_JOB_RETENTION=120
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
