@@ -1,4 +1,105 @@
-# Docker Private Registry Manager
+#!/usr/bin/env python3
+"""
+创建小红书文案和优化后的 README 文件
+"""
+
+xiaohongshu_content = """# 小红书推广文案 - Docker 私有仓库管理系统
+
+## 标题
+🚀 自建 Docker 私有仓库管理神器！轻量级、功能强，一键批量管理镜像～
+
+## 正文内容
+
+### 👋 开篇
+最近在折腾 Docker 容器化部署，需要一个私有仓库来管理自家镜像。网上找了一圈，发现要么功能太简单，要么配置太复杂。索性自己动手做了一个轻量级的可视化管理系统，今天分享给大家！✨
+
+### 🎯 核心功能亮点
+**1️⃣ 可视化管理界面**
+基于 Docker Registry v2 API 开发，无需记复杂的命令行，点点鼠标就能搞定：
+- 浏览仓库列表和镜像 Tag
+- 按需删除指定镜像
+- 实时查看仓库健康状态
+
+**2️⃣ 远程镜像同步**
+从 Docker Hub 或其他镜像源一键拉取并推送到私有仓库：
+```
+输入源镜像：nginx:1.27
+设置目标仓库：platform/nginx
+点击「开始同步」即可自动完成 pull → tag → push
+```
+
+**3️⃣ 本地镜像批量处理** ⭐
+这是我最喜欢的功能！扫描本地镜像后，可以：
+- ✅ 一键批量上传到私有仓库
+- ✅ 自动识别架构并添加标签后缀（-x86 / -arm）
+- ✅ 批量添加/移除仓库前缀（如统一加上 x86/ 或 arm/）
+- ✅ 上传后自动清理本地旧标签，保持整洁
+
+**4️⃣ 远程仓库一键重命名**
+按前缀批量重命名远程仓库的所有 tags，再也不用一个一个手动改了！
+- 例如：把所有 `nginx/` 开头的仓库统一改成 `platform/nginx/`
+- 可选开启「重命名后删除旧标签」，避免新旧仓库并存
+
+**5️⃣ 实时任务监控**
+所有操作都有实时日志输出，随时查看任务执行进度和结果～
+
+### 📦 适用场景
+✅ **个人开发者**：搭建家庭实验室，管理自建应用的 Docker 镜像
+✅ **小团队**：私有化部署，统一管理团队项目的镜像仓库
+✅ **多架构环境**：同时管理 x86 和 ARM 架构的镜像，自动识别标签
+✅ **镜像批处理**：需要批量重命名、上传、删除大量镜像标签
+
+### 🛠️ 快速上手
+**第一步：启动服务**
+```bash
+docker compose up --build -d
+```
+
+**第二步：访问管理页面**
+打开浏览器访问：`http://localhost:8080`
+
+**第三步：开始管理**
+- 左侧面板浏览仓库列表
+- 中间查看镜像 Tag 信息
+- 右侧进行镜像同步和批量上传操作
+
+### 💡 技术栈
+- **后端**：Python + FastAPI
+- **前端**：原生 HTML/CSS/JavaScript（无框架，轻量级）
+- **协议**：Docker Registry HTTP API v2
+- **部署**：Docker + docker-compose
+
+### 🎁 特色设计
+- 🎨 现代化 UI 设计，渐变背景 + 毛玻璃效果
+- 📱 响应式布局，支持移动端访问
+- 🔐 挂载宿主机 `/var/run/docker.sock`，直接操作 Docker
+- ⚡ 支持分页查询，轻松管理大量仓库
+- 🧹 智能清理，同步后自动删除临时镜像
+
+## 总结
+这个项目解决了我自建 Docker 仓库管理的痛点，界面简洁、功能实用，特别适合需要批量管理镜像的场景。代码开源，欢迎大家一起完善！💪
+
+## 标签
+#Docker #私有仓库 #DevOps #容器管理 #DockerRegistry #开源项目 #技术分享 #自建服务
+
+## 配图说明
+> 请使用项目根目录下的 `screenshot.png` 作为配图，展示管理界面的实际效果。
+> 如需重新生成截图，运行以下命令：
+> ```bash
+> npm install puppeteer
+> node screenshot.js
+> ```
+
+## 项目地址
+🔗 GitHub：[项目地址待填写]
+
+## 互动引导
+👇 **你的 Docker 私有仓库是怎么管理的？有什么好用的工具推荐？**
+欢迎在评论区分享你的经验～
+喜欢这个项目的话，别忘了点赞收藏哦！❤️
+"""
+
+readme_content = """# Docker Private Registry Manager
 
 > 一个轻量级、功能强大的 Docker 私有仓库可视化管理系统
 
@@ -203,7 +304,7 @@ docker-mirrors-pravite-manager/
 ├── docker-compose.yml       # 服务编排配置
 ├── docker-compose.full.yml  # 完整栈配置
 ├── requirements.txt         # Python 依赖
-├── screenshot.py            # 截图脚本
+├── screenshot.py            # Python 截图脚本
 ├── screenshot.js            # Node.js 截图脚本
 └── README.md                # 项目文档
 ```
@@ -213,22 +314,18 @@ docker-mirrors-pravite-manager/
 ## ❓ 常见问题
 
 ### Q: Registry 删除镜像后空间没有释放？
-
 A: Registry 删除 manifest 后，存储空间需要执行垃圾回收才会真正释放。这是 Registry 的机制，不是 UI 限制。
 
 ### Q: 同步任务失败怎么办？
-
 A: 检查以下几点：
 1. 宿主机 Docker daemon 对私有仓库地址是否正确配置（如 insecure registry 或 TLS 证书）
 2. 网络连接是否正常
 3. 源镜像是否存在且可访问
 
 ### Q: 批量删除会影响其他标签吗？
-
 A: 批量删除按 `image_id` 强制删除，可能影响同一 ID 下的多个标签。请谨慎操作。
 
 ### Q: 如何管理大量仓库？
-
 A: 系统支持分页查询，默认每页显示 200 个仓库。可通过环境变量 `MAX_CATALOG_RESULTS` 调整。
 
 ---
@@ -267,3 +364,15 @@ MIT License
 ## 📞 联系方式
 
 如有问题或建议，欢迎通过 Issue 联系。
+"""
+
+# 写入文件
+with open('xiaohongshu_post.md', 'w', encoding='utf-8') as f:
+    f.write(xiaohongshu_content)
+    print('✓ 已创建 xiaohongshu_post.md')
+
+with open('README.md', 'w', encoding='utf-8') as f:
+    f.write(readme_content)
+    print('✓ 已更新 README.md')
+
+print('\n所有文件创建完成！')
