@@ -11,7 +11,7 @@
 
 ## 📸 项目截图
 
-![管理界面](.screenshots/screenshot.png)
+![管理界面](screenshots/screenshot.png)
 
 > *现代化 UI 设计，毛玻璃效果 + 渐变背景，界面简洁易用*
 
